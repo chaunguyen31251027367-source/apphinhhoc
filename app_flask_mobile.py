@@ -3,7 +3,7 @@ NHẬN DIỆN HÌNH HỌC - Mobile PWA Flask App
 ==========================================
 Cách chạy:
 1. pip install tensorflow opencv-python flask numpy
-2. Đặt hinh_hoc_model.h5 cùng thư mục
+2. Đặt hinh_hoc_model.tflite cùng thư mục
 3. python app_flask_mobile.py
 4. Mở điện thoại trỏ vào: http://<IP_MÁY_TÍNH>:5000
    (VD: http://192.168.1.5:5000)
@@ -23,13 +23,19 @@ import os
 
 app = Flask(__name__)
 
-MODEL_PATH = 'hinh_hoc_model.h5'
+MODEL_PATH = 'hinh_hoc_model.tflite'
+
 if not os.path.exists(MODEL_PATH):
-    print(f"⚠️  Không tìm thấy {MODEL_PATH}")
-    model = None
+    print(f"⚠️ Không tìm thấy {MODEL_PATH}")
+    interpreter = None
 else:
-    model = tf.keras.models.load_model(MODEL_PATH)
-    print("✅ Load model xong!")
+    interpreter = tf.lite.Interpreter(model_path=MODEL_PATH)
+    interpreter.allocate_tensors()
+
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+
+    print("✅ Load TFLite model xong!")
 
 CLASS_LABELS_VI = {
     0: "Hình Bình Hành",
@@ -639,7 +645,7 @@ def icon():
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    if model is None:
+    if interpreter is None:
         return jsonify({"error": "Model chưa load!"}), 500
 
     data    = request.json['image']
@@ -651,9 +657,14 @@ def predict():
     img     = img.astype('float32') / 255.0
     img     = np.expand_dims(img, 0)
 
-    pred = model.predict(img, verbose=0)[0]
-    idx  = int(np.argmax(pred))
-    conf = float(pred[idx]) * 100
+    interpreter.set_tensor(input_details[0]['index'], img)
+
+interpreter.invoke()
+
+pred = interpreter.get_tensor(output_details[0]['index'])[0]
+
+idx = int(np.argmax(pred))
+conf = float(pred[idx]) * 100
 
     return jsonify({
         "label": CLASS_LABELS_VI[idx],
@@ -683,4 +694,7 @@ if __name__ == '__main__':
     print("\n📌  Đảm bảo điện thoại & máy tính cùng WiFi!")
     print("="*50 + "\n")
 
-    app.run(host='0.0.0.0', debug=True, port=5000)
+    import os
+port = int(os.environ.get("PORT", 5000))
+app.run(host='0.0.0.0', port=port)
+
